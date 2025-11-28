@@ -1,12 +1,15 @@
 // backedn/controllers/FacultyleaveController.js
 const LeaveApplication = require("../models/LeaveApplication");
-const { recomputeOverallStatus } = require("../utils/statusUtil");
+const { recomputeOverallStatus } = require("../utils/statusUtils");
+ 
+
 
 /**
  * Faculty approves a leave.
  * Sets facultyStatus, facultyId, facultyDecisionAt, recomputes overall status.
  */
 exports.approveLeave = async (req, res) => {
+   console.log(">> faculty approve called. req.user =", req.user);
   try {
     const leaveId = req.params.id || req.params.leaveId;
     const leave = await LeaveApplication.findById(leaveId);

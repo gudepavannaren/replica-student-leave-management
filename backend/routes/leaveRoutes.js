@@ -28,3 +28,4 @@ router.patch('/status/:leaveId', authMiddleware, leaveController.updateLeaveStat
 
 
 module.exports = router;
+

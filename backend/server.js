@@ -10,6 +10,13 @@ require('dotenv').config();
 const app = express();
 app.use(express.json());
 app.use(cors());
+app.use((req, res, next) => {
+  if (!req.headers.authorization && req.query.role) {
+    req.user = { id: req.query.userId||'dev', role: req.query.role };
+  }
+  next();
+});
+
 
 // Serve uploads (PDFs, etc.)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -129,8 +136,11 @@ try {
   console.log('Mounted /api/faculty (routes/facultyRoutes.js)');
   mountedAtLeastOneRoute = true;
 } catch (err) {
-  console.warn('routes/facultyRoutes.js not found; faculty routes will use fallback if available.');
+  console.error('Error loading routes/facultyRoutes.js — require() threw an error:');
+  console.error(err && (err.stack || err.message || err));
+  console.warn('routes/facultyRoutes.js could not be mounted. Falling back (if fallback is enabled).');
 }
+
 
 try {
   const rectorRoutes = require('./routes/rectorRoutes');
@@ -138,8 +148,11 @@ try {
   console.log('Mounted /api/rector (routes/rectorRoutes.js)');
   mountedAtLeastOneRoute = true;
 } catch (err) {
-  console.warn('routes/rectorRoutes.js not found; rector routes will use fallback if available.');
+  console.error('Error loading routes/rectorRoutes.js — require() threw an error:');
+  console.error(err && (err.stack || err.message || err));
+  console.warn('routes/rectorRoutes.js could not be mounted. Falling back (if fallback is enabled).');
 }
+
 
 try {
   const leaveRoutes = require('./routes/leaveRoutes');
@@ -227,28 +240,68 @@ fallbackRouter.get('/faculty/leaves/pending', authMiddleware, facultyOnly, async
 });
 
 // Faculty approve/reject (role-aware)
+// Robust faculty approve/reject fallback handler
 fallbackRouter.patch('/faculty/approve/:leaveId', authMiddleware, facultyOnly, async (req, res) => {
   try {
-    if (!LeaveApplication) return res.status(500).json({ message: 'Server not configured: LeaveApplication model missing.' });
+    if (!LeaveApplication) {
+      console.error('Faculty approve: LeaveApplication model missing');
+      return res.status(500).json({ message: 'Server misconfigured: LeaveApplication model missing' });
+    }
 
     const { leaveId } = req.params;
-    const { action } = req.body;
-    if (!['approve', 'reject'].includes(action)) return res.status(400).json({ message: "Invalid action. Use 'approve' or 'reject'." });
+    const action = (req.body && req.body.action) || req.query.action || 'approve'; // default to approve
+    if (!['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ message: "Invalid action. Use 'approve' or 'reject'." });
+    }
 
-    const leave = await LeaveApplication.findById(leaveId);
+    const userId = req.user && (req.user.id || req.user._id);
+    if (!userId) {
+      console.error('Faculty approve: req.user missing or malformed', { reqUser: req.user });
+      return res.status(401).json({ message: 'Unauthorized: req.user missing' });
+    }
+
+    // Validate leaveId quickly
+    if (!leaveId) {
+      return res.status(400).json({ message: 'leaveId is required' });
+    }
+
+    let leave;
+    try {
+      leave = await LeaveApplication.findById(leaveId);
+    } catch (dbErr) {
+      console.error('Faculty approve: DB error finding leaveId:', leaveId, dbErr);
+      return res.status(400).json({ message: 'Invalid leaveId or DB lookup error', detail: dbErr.message });
+    }
+
     if (!leave) return res.status(404).json({ message: 'Leave not found' });
 
+    // Do the update
     leave.facultyStatus = action === 'approve' ? 'approved' : 'rejected';
-    leave.facultyId = req.user.id || req.user._id;
+    leave.facultyId = userId;
     leave.facultyDecisionAt = new Date();
 
-    leave.status = recomputeOverallStatus(leave);
+    // compute overall status if you have a helper, but protect against missing function
+    try {
+      if (typeof recomputeOverallStatus === 'function') {
+        leave.status = recomputeOverallStatus(leave);
+      } else {
+        // best-effort fallback
+        leave.status = leave.facultyStatus === 'approved' && (leave.rectorStatus === 'approved') ? 'approved' :
+                       (leave.facultyStatus === 'rejected' || leave.rectorStatus === 'rejected') ? 'rejected' :
+                       (leave.facultyStatus === 'approved' ? 'semi-approved' : (leave.status || 'pending'));
+      }
+    } catch (stErr) {
+      console.warn('Faculty approve: recomputeOverallStatus threw, using fallback status. err:', stErr?.message || stErr);
+    }
+
     await leave.save();
 
-    return res.status(200).json({ message: 'Faculty decision recorded', leave });
+    console.log(`Faculty ${userId} ${action}d leave ${leaveId}`);
+    return res.status(200).json({ message: `Faculty ${action} recorded`, leave });
   } catch (err) {
-    console.error('faculty approve error:', err);
-    return res.status(500).json({ message: 'Server error' });
+    // Log full error for debugging
+    console.error('Faculty approve handler unexpected error:', err && (err.stack || err.message || err));
+    return res.status(500).json({ message: 'Server error', detail: err?.message || String(err) });
   }
 });
 

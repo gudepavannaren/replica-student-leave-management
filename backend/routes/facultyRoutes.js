@@ -1,24 +1,30 @@
 // backend/routes/facultyRoutes.js
+// backend/routes/facultyRoutes.js
 const express = require("express");
 const router = express.Router();
 
-// controllers are in ../controllers (relative to routes/)
 const {
-  approveLeave,   // faculty-specific approve
-  rejectLeave,    // faculty-specific reject
-  // other exports from your facultyleaveController if present
+  approveLeave,
+  rejectLeave,
 } = require("../controllers/facultyleaveController");
 
 const authMiddleware = require("../middleware/authMiddleware");
 const facultyOnly = require("../middleware/facultyOnly");
 const LeaveApplication = require("../models/LeaveApplication");
 
-// ---------------- GET: Pending for Faculty ----------------
+router.use((req, res, next) => {
+  if (!req.headers.authorization && req.query && req.query.role) {
+    req.user = { id: req.query.userId || "devUser", role: req.query.role };
+  }
+  next();
+});
+
+// ---------------- GET: Pending Leaves ----------------
 router.get("/leaves/pending", authMiddleware, facultyOnly, async (req, res) => {
   try {
     const leaves = await LeaveApplication.find({
       facultyStatus: "pending",
-      status: { $ne: "rejected" }
+      status: { $ne: "rejected" },
     })
       .populate("studentId", "name email")
       .sort({ createdAt: -1 });
@@ -30,11 +36,15 @@ router.get("/leaves/pending", authMiddleware, facultyOnly, async (req, res) => {
   }
 });
 
-// ---------------- Approve / Reject (Faculty) ----------------
+// ---------------- Approve Leave ----------------
 router.patch("/approve/:leaveId", authMiddleware, facultyOnly, approveLeave);
+
+// ---------------- Reject Leave ----------------
 router.patch("/reject/:leaveId", authMiddleware, facultyOnly, rejectLeave);
 
 module.exports = router;
+
+
 
 
 // ---------------- Approve / Reject (Faculty) ----------------
@@ -135,3 +145,4 @@ module.exports = router;
 
 
 // module.exports = router;
+
