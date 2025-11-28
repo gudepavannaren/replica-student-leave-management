@@ -1,159 +1,163 @@
+// frontend/src/pages/faculty/dashboard.jsx
 import React, { useEffect, useState } from "react";
-import axios from "axios";
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+import api from "../../services/api";
+import Navbar from "../../components/navbar";
+import { useAuth } from "../../context/Authcontext";
 
 export default function FacultyDashboard() {
+  const { user } = useAuth(); // optional, used only to re-fetch if user changes
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] = useState(null);
+  const [globalError, setGlobalError] = useState(null);
+  const [processingId, setProcessingId] = useState(null); // id currently being processed
 
-  const token = localStorage.getItem("token");
+  const PENDING_ENDPOINT = "/api/faculty/leaves/pending";
+  const APPROVE_ENDPOINT = (id) => `/api/faculty/approve/${id}`;
 
   useEffect(() => {
-    fetchLeaves();
-  }, []);
-
-  const fetchLeaves = async () => {
-    try {
+    let mounted = true;
+    const fetchPending = async () => {
       setLoading(true);
-      const res = await axios.get(`${API_BASE}/api/faculty/leaves`, {
-        headers: { Authorization: token ? `Bearer ${token}` : "" },
-      });
+      setGlobalError(null);
+      try {
+        console.log("[FacultyDashboard] GET", PENDING_ENDPOINT);
+        const res = await api.get(PENDING_ENDPOINT);
+        // backend returns { leaves: [...] }
+        const fetched = Array.isArray(res?.data?.leaves) ? res.data.leaves : (Array.isArray(res?.data) ? res.data : []);
+        if (mounted) setLeaves(fetched);
+      } catch (err) {
+        console.error("[FacultyDashboard] fetch failed:", err?.response?.status, err?.response?.data || err?.message);
+        // map common errors to friendly message
+        const status = err?.response?.status;
+        if (status === 401) setGlobalError("Unauthorized. Please login again.");
+        else if (status === 403) setGlobalError("Forbidden. Your account lacks the faculty role.");
+        else setGlobalError("Failed to load pending leaves. Check backend routes or console for details.");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
 
-      console.log("Faculty fetched:", res.data);
-      const data = res.data.leaves ?? [];
-      setLeaves(data);
-    } catch (err) {
-      console.error("Failed to fetch faculty leaves:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    fetchPending();
+    return () => { mounted = false; };
+  }, [user]);
 
-  const updateLeaveStatus = async (leaveId, action) => {
-    const isApprove = action === "approve";
+  // Generic change-status (approve/reject)
+  const changeLeaveStatus = async (leaveId, action) => {
+    if (!leaveId) return;
     setProcessingId(leaveId);
+    setGlobalError(null);
 
     try {
-      const url = isApprove
-        ? `${API_BASE}/api/faculty/approve/${leaveId}`
-        : `${API_BASE}/api/faculty/reject/${leaveId}`;
-
-      const body = isApprove ? {} : { reason: "Rejected by faculty" };
-
-      const res = await axios.patch(url, body, {
-        headers: { Authorization: token ? `Bearer ${token}` : "" },
-      });
-
-      const updated = res.data?.leave;
-
-      setLeaves((prev) =>
-        prev.map((l) => (l._id === leaveId ? updated : l))
-      );
+      console.log("[FacultyDashboard] calling PATCH", APPROVE_ENDPOINT(leaveId), { action });
+      // backend expects body { action: 'approve' | 'reject' }
+      const res = await api.patch(APPROVE_ENDPOINT(leaveId), { action });
+      console.log("[FacultyDashboard] change status response:", res?.data);
+      // remove the row from UI (or call fetch again if you prefer)
+      setLeaves(prev => prev.filter(l => (l._id || l.id) !== leaveId));
     } catch (err) {
-      console.error("Failed to update leave:", err);
+      console.error("Approve/Reject error:", err);
+      const status = err?.response?.status;
+      if (status === 401) {
+        alert("Action failed: Unauthorized. Please login.");
+      } else if (status === 403) {
+        alert("Action failed: Only faculty can perform this action.");
+      } else if (status === 404) {
+        alert("Action failed: Leave not found.");
+      } else {
+        // fallback
+        alert("Approve failed: " + (err?.response?.data?.message || err?.message || "Server error"));
+      }
     } finally {
       setProcessingId(null);
     }
   };
 
-  const getStatusBadge = (status) => {
-    const s = (status || "pending").toLowerCase();
-    if (s === "approved" || s === "approvedbyfaculty" || s === "approvedbyrector")
-      return "bg-green-500/20 text-green-400";
-    if (s === "rejected" || s.includes("rejected"))
-      return "bg-red-500/20 text-red-400";
-    return "bg-yellow-500/20 text-yellow-300";
+  const approve = (id) => changeLeaveStatus(id, "approve");
+  const reject = (id) => {
+    // optional: you can prompt for a reason
+    if (!window.confirm("Are you sure you want to reject this leave?")) return;
+    changeLeaveStatus(id, "reject");
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-6">
-      <h2 className="text-3xl mb-6 font-bold">Faculty Dashboard</h2>
+    <div className="min-h-screen bg-slate-900 text-slate-100">
+      <Navbar />
+      <div className="p-8 max-w-6xl mx-auto">
+        <h1 className="text-3xl font-bold mb-6">Faculty Dashboard</h1>
 
-      <div className="bg-gray-900 rounded-xl p-4 shadow-xl">
-        {loading ? (
-          <p className="text-center text-gray-400 py-10">Loading...</p>
-        ) : (
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-gray-800 text-gray-300">
-                <th className="py-3 px-4">Student</th>
-                <th className="py-3 px-4">Email</th>
-                <th className="py-3 px-4">From</th>
-                <th className="py-3 px-4">To</th>
-                <th className="py-3 px-4">Reason</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-center">Actions</th>
-              </tr>
-            </thead>
+        {loading && <div className="text-slate-400 mb-4">Loading pending leaves...</div>}
 
-            <tbody>
-              {leaves.map((leave) => {
-                const id = leave._id;
-                const status = leave.status;
-                const pending =
-                  status === "pending" ||
-                  status === "approvedByRector" ||
-                  status === "pendingFaculty";
+        {globalError && (
+          <div className="mb-4 p-3 bg-red-600 text-white rounded">{globalError}</div>
+        )}
 
-                return (
-                  <tr key={id} className="border-b border-gray-700">
-                    <td className="py-3 px-4">{leave.studentName}</td>
-                    <td className="py-3 px-4 text-gray-400">
-                      {leave.studentEmail}
-                    </td>
-                    <td className="py-3 px-4">
-                      {new Date(leave.startDate).toLocaleDateString()}
-                    </td>
-                    <td className="py-3 px-4">
-                      {new Date(leave.endDate).toLocaleDateString()}
-                    </td>
-                    <td className="py-3 px-4">{leave.reason}</td>
+        {!loading && leaves.length === 0 && !globalError && (
+          <div className="p-4 bg-slate-800 rounded">No pending leaves found.</div>
+        )}
 
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-3 py-1 text-xs rounded-full ${getStatusBadge(
-                          leave.status
-                        )}`}
-                      >
-                        {leave.status}
-                      </span>
-                    </td>
+        {!loading && leaves.length > 0 && (
+          <div className="overflow-auto bg-slate-800 rounded p-4">
+            <table className="min-w-full table-auto">
+              <thead>
+                <tr>
+                  <th className="px-4 py-2 text-left">Student</th>
+                  <th className="px-4 py-2 text-left">Email</th>
+                  <th className="px-4 py-2 text-left">From</th>
+                  <th className="px-4 py-2 text-left">To</th>
+                  <th className="px-4 py-2 text-left">Reason</th>
+                  <th className="px-4 py-2 text-left">Status</th>
+                  <th className="px-4 py-2 text-left">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaves.map((l) => {
+                  const id = l._id || l.id;
+                  const isProcessing = processingId === id;
+                  const studentName = l.student?.name || l.studentName || (l.studentId && l.studentId.name) || "—";
+                  const studentEmail = l.student?.email || (l.studentId && l.studentId.email) || "—";
+                  const from = l.fromDate ? new Date(l.fromDate).toLocaleDateString() : (l.from || "—");
+                  const to = l.toDate ? new Date(l.toDate).toLocaleDateString() : (l.to || "—");
+                  const statusText = l.facultyStatus || l.status || "pending";
 
-                    <td className="py-3 px-4 text-center">
-                      {pending ? (
-                        <div className="flex gap-3 justify-center">
+                  return (
+                    <tr key={id} className="border-t border-slate-700">
+                      <td className="px-4 py-3">{studentName}</td>
+                      <td className="px-4 py-3">{studentEmail}</td>
+                      <td className="px-4 py-3">{from}</td>
+                      <td className="px-4 py-3">{to}</td>
+                      <td className="px-4 py-3 max-w-md">{l.reason || "—"}</td>
+                      <td className="px-4 py-3">{statusText}</td>
+                      <td className="px-4 py-3">
+                        <div className="space-x-2">
                           <button
-                            className="bg-green-600 px-3 py-1 rounded-lg hover:bg-green-700 disabled:opacity-40"
-                            disabled={processingId === id}
-                            onClick={() => updateLeaveStatus(id, "approve")}
+                            disabled={isProcessing}
+                            onClick={() => approve(id)}
+                            className={`px-3 py-1 rounded ${isProcessing ? "bg-green-500/60 cursor-wait" : "bg-green-600"}`}
                           >
-                            {processingId === id ? "..." : "Approve"}
+                            {isProcessing ? "Processing..." : "Approve"}
                           </button>
-
                           <button
-                            className="bg-red-600 px-3 py-1 rounded-lg hover:bg-red-700 disabled:opacity-40"
-                            disabled={processingId === id}
-                            onClick={() => updateLeaveStatus(id, "reject")}
+                            disabled={isProcessing}
+                            onClick={() => reject(id)}
+                            className={`px-3 py-1 rounded ${isProcessing ? "bg-red-500/60 cursor-wait" : "bg-red-600"}`}
                           >
-                            {processingId === id ? "..." : "Reject"}
+                            {isProcessing ? "Processing..." : "Reject"}
                           </button>
                         </div>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
   );
 }
+
+
 
 // import React, { useEffect, useState } from "react";
 // import axios from "axios";

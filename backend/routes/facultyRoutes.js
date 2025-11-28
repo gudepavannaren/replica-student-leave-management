@@ -1,16 +1,24 @@
-// backend/routes/facultyRoutes.js (snippet for pending leaves)
+// backend/routes/facultyRoutes.js
 const express = require("express");
 const router = express.Router();
+
+// controllers are in ../controllers (relative to routes/)
+const {
+  approveLeave,   // faculty-specific approve
+  rejectLeave,    // faculty-specific reject
+  // other exports from your facultyleaveController if present
+} = require("../controllers/facultyleaveController");
+
 const authMiddleware = require("../middleware/authMiddleware");
 const facultyOnly = require("../middleware/facultyOnly");
 const LeaveApplication = require("../models/LeaveApplication");
 
-// GET pending leaves for faculty
+// ---------------- GET: Pending for Faculty ----------------
 router.get("/leaves/pending", authMiddleware, facultyOnly, async (req, res) => {
   try {
     const leaves = await LeaveApplication.find({
       facultyStatus: "pending",
-      status: { $ne: "rejected" } // optional filter to avoid already rejected
+      status: { $ne: "rejected" }
     })
       .populate("studentId", "name email")
       .sort({ createdAt: -1 });
@@ -22,7 +30,32 @@ router.get("/leaves/pending", authMiddleware, facultyOnly, async (req, res) => {
   }
 });
 
+// ---------------- Approve / Reject (Faculty) ----------------
+router.patch("/approve/:leaveId", authMiddleware, facultyOnly, approveLeave);
+router.patch("/reject/:leaveId", authMiddleware, facultyOnly, rejectLeave);
+
 module.exports = router;
+
+
+// ---------------- Approve / Reject (Faculty) ----------------
+// Use consistent route parameter name 'leaveId' to match controllers/comments.
+// These routes require the user be authenticated and have faculty role.
+
+// Optional: GET all leaves for faculty (uncomment if you need it)
+// router.get("/leaves", authMiddleware, facultyOnly, async (req, res) => {
+//   try {
+//     const leaves = await LeaveApplication.find()
+//       .populate("studentId", "name email")
+//       .sort({ createdAt: -1 });
+//     return res.status(200).json({ leaves });
+//   } catch (err) {
+//     console.error("Faculty get all leaves error:", err);
+//     return res.status(500).json({ message: "Server error" });
+//   }
+// });
+
+
+
 
 // const express = require("express");
 // const router = express.Router();
@@ -39,7 +72,7 @@ module.exports = router;
 // router.get("/all", authMiddleware, rectorOnly, getAllLeavesForRector);
 
 // // 👉 Approve / Reject leave
-// router.patch("/approve/:leaveId", authMiddleware, rectorOnly, rectorApprove);
+//router.patch("/approve/:leaveId", authMiddleware, rectorOnly, rectorApprove);
 
 // module.exports = router;
 

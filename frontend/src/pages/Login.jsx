@@ -1,115 +1,94 @@
-import { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
-import axios from "axios";
+// frontend/src/pages/Login.jsx
+import React, { useState } from "react";
+import { Link } from "react-router-dom";
+import api from "../services/api"; // path: adjust to ../services/api if your file is there
+import { useAuth } from "../context/Authcontext";
 
-function Login() {
-  const apiurl = import.meta.env.VITE_API_URL; // Example: http://localhost:5000
-  const navigate = useNavigate();
-
-  const [loginData, setLoginData] = useState({ email: "", password: "" });
+export default function Login() {
+  const { login } = useAuth();
+  const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [error, setError] = useState(null);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setErrorMsg("");
+  function onChange(e) {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  }
+
+  async function onSubmit(e) {
+    e.preventDefault();           // <<< IMPORTANT: prevents full-page refresh
+    setError(null);
     setLoading(true);
 
     try {
-      const res = await axios.post(`${apiurl}/api/auth/login`, loginData);
+      const res = await api.post("/api/auth/login", form);
+      const data = res.data;
 
-      // Save token & user details in localStorage
-      localStorage.setItem("token", res.data.token);
-      localStorage.setItem("user", JSON.stringify(res.data.user));
+      // Adapt depending on your backend response shape:
+      // Common shapes:
+      // 1) { token, user }
+      // 2) { success: true, data: { token, user } }
+      // 3) { data: { token, user } }
+      // The checks below try to handle the common cases.
+      const token = data.token || data.data?.token || data.accessToken;
+      const user = data.user || data.data?.user || data.data || data;
 
-      // Redirect based on role
-      if (res.data.user.role === "rector") {
-        navigate("/rector/dashboard");
-      } else if (res.data.user.role === "student") {
-        navigate("/student/dashboard");
-      } 
-      else if (res.data.user.role === "faculty") {
-        navigate("/faculty/dashboard");
-      } 
-      else {
-        navigate("/");
+      if (!token || !user) {
+        console.error("Unexpected login response:", data);
+        throw new Error(data.message || "Invalid login response");
       }
 
-      // Reset form
-      setLoginData({ email: "", password: "" });
-    } catch (error) {
-      if (error.response?.data?.message) {
-        setErrorMsg(error.response.data.message);
-      } else {
-        setErrorMsg("An unexpected error occurred. Please try again.");
-      }
+      // call login from AuthContext
+      login({ token, user });
+      // login() handles navigation by role (if you implemented it)
+    } catch (err) {
+      console.error("Login error:", err);
+      setError(err?.response?.data?.message || err.message || "Failed to login");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
-    <div className="flex items-center justify-center h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-black">
-      <div className="w-full max-w-md p-8 border border-slate-700 rounded-xl bg-slate-800 shadow-2xl shadow-slate-950">
-        <h2 className="text-4xl font-extrabold text-center mb-6 text-white tracking-wide">Login</h2>
-        <p className="text-center mb-6 text-slate-300">
-          Don't have an account?{" "}
-          <NavLink
-            to="/register"
-            className="text-teal-400 hover:text-teal-300 hover:underline font-semibold transition-colors duration-200"
-          >
-            Signup
-          </NavLink>
-        </p>
+    <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
+      <form onSubmit={onSubmit} className="w-full max-w-md p-6 bg-slate-800 rounded">
+        <h2 className="text-xl mb-4">Login</h2>
 
-        {errorMsg && (
-          <div className="text-red-400 text-sm font-medium mb-4 text-center bg-red-900 bg-opacity-30 p-2 rounded-md border border-red-700">
-            {errorMsg}
-          </div>
-        )}
+        {error && <div className="mb-3 p-2 bg-red-600">{error}</div>}
 
-        <form
-          className="flex flex-col gap-5"
-          onSubmit={handleSubmit}
-        >
+        <label className="block mb-2">
+          Email
           <input
-            type="email"
-            placeholder="Enter your Email"
-            className="p-4 w-full border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all duration-200 text-lg"
-            onChange={(e) =>
-              setLoginData({ ...loginData, email: e.target.value })
-            }
-            value={loginData.email}
+            name="email"
+            value={form.email}
+            onChange={onChange}
             required
+            className="w-full p-2 mt-1 rounded bg-slate-700"
           />
+        </label>
+
+        <label className="block mb-4">
+          Password
           <input
+            name="password"
             type="password"
-            placeholder="Enter your Password"
-            className="p-4 w-full border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all duration-200 text-lg"
-            onChange={(e) =>
-              setLoginData({ ...loginData, password: e.target.value })
-            }
-            value={loginData.password}
+            value={form.password}
+            onChange={onChange}
             required
+            className="w-full p-2 mt-1 rounded bg-slate-700"
           />
-          <button
-            type="submit"
-            disabled={loading}
-            className={`p-4 rounded-lg font-bold text-lg transition-all duration-300 ease-in-out transform hover:scale-105 ${
-              loading
-                ? "bg-slate-700 text-slate-400 cursor-not-allowed"
-                : "bg-teal-600 text-white hover:bg-teal-700 shadow-lg shadow-teal-900/50"
-            }`}
-          >
-            {loading ? "Logging in..." : "Submit"}
-          </button>
-        </form>
-      </div>
+        </label>
+
+        <button type="submit" disabled={loading} className="w-full py-2 bg-indigo-600 rounded">
+          {loading ? "Signing in..." : "Sign In"}
+        </button>
+
+        <div className="mt-4 text-sm">
+          <Link to="/register" className="text-indigo-400">Create an account</Link>
+        </div>
+      </form>
     </div>
   );
 }
-
-export default Login;
 
 // import { useState } from "react";
 // import { NavLink, useNavigate } from "react-router-dom";

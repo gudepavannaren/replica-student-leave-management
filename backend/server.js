@@ -143,7 +143,7 @@ try {
 
 try {
   const leaveRoutes = require('./routes/leaveRoutes');
-  app.use('/api/leave', leaveRoutes);
+  app.use('/api/leaves', leaveRoutes);
   console.log('Mounted /api/leave (routes/leaveRoutes.js)');
   mountedAtLeastOneRoute = true;
 } catch (err) {
