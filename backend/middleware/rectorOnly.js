@@ -1,16 +1,28 @@
-// backedn/middleware/rectorOnly.js
-// Ensures only users with role "rector" may access the route.
-
-module.exports = function (req, res, next) {
-  if (!req.user || req.user.role !== "rector") {
-    return res.status(403).json({ message: "Only rector can perform this action" });
-  }
-  next();
+// backend/middleware/rectorOnly.js
+module.exports = (req, res, next) => {
+  if (req.user && req.user.role === 'rector') return next();
+  return res.status(403).json({ message: 'Rector only' });
 };
 
-// module.exports = function (req, res, next) {
-//   if (req.user.role !== "rector") {
-//     return res.status(403).json({ message: "Only rector can perform this action" });
-//   }
-//   next();
+// // backend/middleware/rectorOnly.js
+// module.exports = (req, res, next) => {
+//   if (req.user && req.user.role === 'rector') return next();
+//   return res.status(403).json({ message: 'Rector only' });
 // };
+
+// // // backedn/middleware/rectorOnly.js
+// // // Ensures only users with role "rector" may access the route.
+
+// // module.exports = function (req, res, next) {
+// //   if (!req.user || req.user.role !== "rector") {
+// //     return res.status(403).json({ message: "Only rector can perform this action" });
+// //   }
+// //   next();
+// // };
+
+// // // module.exports = function (req, res, next) {
+// // //   if (req.user.role !== "rector") {
+// // //     return res.status(403).json({ message: "Only rector can perform this action" });
+// // //   }
+// // //   next();
+// // // };
